@@ -31,6 +31,7 @@ from reader.core import config, voices
 # он выставляет OMP/MKL-переменные до импорта torch; повторный импорт здесь
 # безопасен и гарантирует порядок при прямом импорте этого модуля.
 from reader.core.model_manager import ModelManager, default_use_gpu
+from reader.core.stress import HAS_RUACCENT
 from reader.core.text_processing import describe_splitter
 from reader.ui import theme, widgets
 from reader.workers.worker_threads import (
@@ -216,6 +217,17 @@ class MainWindow(QMainWindow):
         )
         self.text_area.setMinimumHeight(260)
         body.addWidget(self.text_area, stretch=1)
+
+        row_stress = QHBoxLayout()
+        row_stress.setSpacing(16)
+        self.chk_stress = QCheckBox("✍ Контекстные ударения (ruaccent + словарь омографов)")
+        self.chk_stress.setChecked(True)
+        # словарь омографов работает всегда; ruaccent лишь добавляется сверху
+        if not HAS_RUACCENT:
+            self.chk_stress.setText("✍ Контекстные ударения (словарь омографов)")
+        row_stress.addWidget(self.chk_stress)
+        row_stress.addStretch(1)
+        body.addLayout(row_stress)
 
         self.btn_open.clicked.connect(self.open_file)
         self.text_area.textChanged.connect(self._update_charcount)
@@ -441,6 +453,7 @@ class MainWindow(QMainWindow):
             cleanup=cleanup,
             out_path=out_path,
             stop_check=lambda: self.stop_flag,
+            auto_stress=self.chk_stress.isChecked(),
         )
         self._worker_thread.status_changed.connect(self.sig_status.emit)
         self._worker_thread.progress_changed.connect(self.sig_progress.emit)

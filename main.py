@@ -8,7 +8,9 @@
             logging_setup.py     — настройка логов и подавление шумных warnings
             model_manager.py     — ModelManager: загрузка XTTS, CPU/GPU, прогрев, латенты,
                                    патчи совместимости (torchaudio→soundfile, safe globals)
-            text_processing.py   — сегментация текста (razdel → pysbd → regex), чанки
+            text_processing.py   — сегментация текста (razdel → pysbd → regex), чанки,
+                                   дедупликация повторяющихся фрагментов
+            stress.py            — контекстные ударения: ruaccent + словарь омографов
             audio_processing.py  — постобработка звука и запись WAV/MP3
             voices.py            — папки голосов, кэш латентов, добавление голосов
         workers/
@@ -38,6 +40,7 @@ import torch
 from PyQt6.QtWidgets import QApplication
 
 from reader.core.logging_setup import setup_logging
+from reader.core.stress import HAS_RUACCENT
 from reader.ui.main_window import MainWindow
 from reader.ui.theme import build_qss
 
@@ -62,7 +65,7 @@ def _configure_torch_threads() -> None:
 
 
 def main() -> None:
-    setup_logging()
+    log = setup_logging(config.OUTPUT_DIR)
     _configure_torch_threads()
 
     if sys.platform == "win32":
@@ -75,6 +78,10 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("XTTS Reader")
     app.setStyleSheet(build_qss())
+
+    log.info("Основной лог: %s", config.OUTPUT_DIR / "reader.log")
+    log.info("Постановщик ударений: %s",
+             "ruaccent + словарь" if HAS_RUACCENT else "словарь омографов")
 
     win = MainWindow()
     win.show()
