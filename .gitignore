@@ -1,0 +1,7 @@
+.venv311/*
+*.egg-info
+*.pyc
+__pycache__
+*/__pycache__/
+texts/*
+output/*

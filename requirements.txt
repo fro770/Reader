@@ -1,0 +1,12 @@
+PyQt6
+torch
+torchaudio
+soundfile
+sounddevice
+numpy
+scipy
+librosa
+ruaccent
+TTS
+lameenc
+torchcodec
