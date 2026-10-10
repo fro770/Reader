@@ -102,6 +102,34 @@ def _split_long_sentence(sentence: str, max_len: int) -> list[str]:
     return result
 
 
+# ------------------------------------------------------------------ Защита от повторов
+_STRESS = "\u0301"
+
+
+def _norm_key(chunk: str) -> str:
+    """Ключ сравнения чанков: без ударений, регистра и пунктуации."""
+    t = chunk.replace(_STRESS, "").lower()
+    t = re.sub(r"[^\w\s]", "", t, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _is_duplicate(prev: str, cur: str) -> bool:
+    """Один и тот же фрагмент? (полное совпадение или сильное перекрытие хвоста)."""
+    a, b = _norm_key(prev), _norm_key(cur)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    # хвост prev начинается с начала cur (или наоборот) — типичный артефакт
+    # XTTS, когда модель «доедает» последние слова фразы в следующем чанке
+    tail_a = a[-25:]
+    head_b = b[:25]
+    if len(tail_a) >= 8 and len(head_b) >= 8 and tail_a == head_b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return len(shorter) >= 10 and shorter in longer
+
+
 def split_into_chunks(text: str, max_len: int) -> list[str]:
     """Разбивает текст на чанки, группируя короткие предложения.
 
@@ -110,6 +138,7 @@ def split_into_chunks(text: str, max_len: int) -> list[str]:
       2. Разбиваем на предложения через razdel/pysbd/regex.
       3. Сливаем последовательные предложения, пока очередное влезает в max_len.
       4. Слишком длинные предложения режем отдельно.
+      5. Убираем случайные повторы соседних чанков (защита от галлюцинаций XTTS).
     """
     if not text:
         return []
@@ -142,4 +171,34 @@ def split_into_chunks(text: str, max_len: int) -> list[str]:
     if current:
         chunks.append(current)
 
-    return [c for c in chunks if c]
+    chunks = [c for c in chunks if c]
+
+    deduped: list[str] = []
+    for c in chunks:
+        if deduped and _is_duplicate(deduped[-1], c):
+            logger.warning("Повторяющийся чанк пропущен: %r", c[:60])
+            continue
+        deduped.append(c)
+    if len(deduped) != len(chunks):
+        logger.info("Дедупликация чанков: %d → %d", len(chunks), len(deduped))
+    return deduped
+
+
+def trim_overlap(chunk_text: str, prev_text: str) -> tuple[int, float]:
+    """Оценивает, сколько слов следующего чанка модель могла «доесть» за предыдущим.
+
+    Возвращает (кол-во повторяющихся слов на стыке, примерную длительность в
+    секундах при среднем темпе русской речи ~2.7 слова/сек). Используется
+    воркером для подрезки начала текущего аудио, чтобы на слух не было
+    двойного прочтения фразы.
+    """
+    a_words = _norm_key(prev_text).split()
+    b_words = _norm_key(chunk_text).split()
+    if not a_words or not b_words:
+        return 0, 0.0
+
+    max_k = min(len(a_words), len(b_words), 8)
+    for k in range(max_k, 2, -1):
+        if a_words[-k:] == b_words[:k]:
+            return k, k / 2.7
+    return 0, 0.0
